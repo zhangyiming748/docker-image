@@ -1,0 +1,78 @@
+name: Download and Save Docker Images
+
+on:
+  workflow_dispatch:  # 允许手动触发
+  push:
+    tags:
+      - '*'  # 推送任意标签时触发
+
+jobs:
+  download-images:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Read image list
+        id: read-list
+        run: |
+          echo "Reading image list from list.txt"
+          cat list.txt
+      - name: Download and save Docker images
+        run: |
+          mkdir -p docker-images
+          
+          while IFS= read -r image || [ -n "$image" ]; do
+            # Skip empty lines and comments
+            [[ -z "$image" || "$image" =~ ^# ]] && continue
+            
+            echo "========================================="
+            echo "Processing image: $image"
+            echo "========================================="
+            
+            # Pull the image
+            echo "Pulling image..."
+            docker pull "$image"
+            
+            # Create a safe filename (replace / and : with -)
+            safe_name=$(echo "$image" | sed 's/[\/:]/-/g')
+            output_file="docker-images/${safe_name}.tar"
+            
+            # Save the image
+            echo "Saving image to ${output_file}..."
+            docker save -o "$output_file" "$image"
+            
+            # Get file size
+            file_size=$(du -h "$output_file" | cut -f1)
+            echo "Saved successfully! Size: $file_size"
+            echo ""
+            
+          done < list.txt
+          
+          # List all saved images
+          echo "========================================="
+          echo "All saved images:"
+          echo "========================================="
+          ls -lh docker-images/
+      
+      - name: Upload Docker images as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: docker-images/*.tar
+          retention-days: 7
+          compression-level: 0  # No compression for faster upload
+      
+      - name: Summary
+        run: |
+          echo "## Docker Images Download Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Successfully downloaded and saved the following images:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls -lh docker-images/ >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total images:** $(ls docker-images/*.tar | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "**Total size:** $(du -sh docker-images/ | cut -f1)" >> $GITHUB_STEP_SUMMARY
